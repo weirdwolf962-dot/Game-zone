@@ -1,60 +1,56 @@
 // src/lib/wordgen.js
-// Uses Pollinations AI to generate spy game words per difficulty
+// Pollinations AI — gen.pollinations.ai/v1/chat/completions
+
+const POLLINATIONS_KEY = 'sk_tG4aWAeMieKVNdVA2GovxRBsTSapq6qy'
+const MODEL = 'gemini-search'
 
 const DIFFICULTY_PROMPTS = {
-  easy: `Give me a pair of very simple, common words suitable for a spy game. 
-    Normal players get word A, the spy gets word B. 
-    Words should be related but clearly different (e.g. Cat / Dog, Apple / Orange).
-    Respond ONLY with JSON: {"normal": "word1", "spy": "word2"}`,
+  easy:   `You are a word generator for a spy party game. Give a pair of simple common words. Normal players get word A, spy gets word B. Words should be clearly different (e.g. Cat/Dog, Apple/Orange). Reply ONLY with raw JSON, no markdown: {"normal":"word1","spy":"word2"}`,
+  medium: `You are a word generator for a spy party game. Give a pair of moderately related words. Same category but different enough to confuse (e.g. Beach/Desert, Coffee/Tea). Reply ONLY with raw JSON, no markdown: {"normal":"word1","spy":"word2"}`,
+  hard:   `You are a word generator for a spy party game. Give a pair of very closely related tricky words, almost indistinguishable (e.g. Latte/Cappuccino, Skateboard/Surfboard). Reply ONLY with raw JSON, no markdown: {"normal":"word1","spy":"word2"}`
+}
 
-  medium: `Give me a pair of moderately related words for a spy game. 
-    Normal players get the normal word, the spy gets the spy word. 
-    Words should be somewhat similar (same category, could confuse people).
-    Example: Beach / Desert, Coffee / Tea.
-    Respond ONLY with JSON: {"normal": "word1", "spy": "word2"}`,
-
-  hard: `Give me a pair of very closely related, tricky words for a spy game. 
-    The spy's word should be almost the same category and hard to distinguish.
-    Example: Latte / Cappuccino, Skateboard / Surfboard.
-    Respond ONLY with JSON: {"normal": "word1", "spy": "word2"}`
+const FALLBACKS = {
+  easy:   [{ normal:'Dog',spy:'Cat' },{ normal:'Sun',spy:'Moon' },{ normal:'Apple',spy:'Orange' },{ normal:'Car',spy:'Bike' }],
+  medium: [{ normal:'Beach',spy:'Desert' },{ normal:'Coffee',spy:'Tea' },{ normal:'Guitar',spy:'Violin' },{ normal:'Laptop',spy:'Tablet' }],
+  hard:   [{ normal:'Latte',spy:'Cappuccino' },{ normal:'Skateboard',spy:'Surfboard' },{ normal:'Crocodile',spy:'Alligator' },{ normal:'Cement',spy:'Concrete' }]
 }
 
 export async function generateWords(difficulty = 'medium') {
   try {
-    const prompt = encodeURIComponent(DIFFICULTY_PROMPTS[difficulty])
-    const url = `https://text.pollinations.ai/${prompt}?model=openai&seed=${Date.now()}&json=true`
-    
-    const res = await fetch(url)
-    const text = await res.text()
-    
-    // Parse JSON from response
-    const jsonMatch = text.match(/\{[\s\S]*"normal"[\s\S]*"spy"[\s\S]*\}/)
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0])
-      return { normal: parsed.normal, spy: parsed.spy }
-    }
-    throw new Error('Invalid response format')
+    const res = await fetch('https://gen.pollinations.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${POLLINATIONS_KEY}`,
+      },
+      body: JSON.stringify({
+        model:    MODEL,
+        private:  true,
+        messages: [
+          { role: 'system', content: 'You are a helpful word generator for a party game. Always respond with raw JSON only.' },
+          { role: 'user',   content: DIFFICULTY_PROMPTS[difficulty] }
+        ],
+      })
+    })
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    const data = await res.json()
+    const raw  = data?.choices?.[0]?.message?.content || ''
+    const cleaned = raw.replace(/```json|```/gi, '').trim()
+    const match   = cleaned.match(/\{[\s\S]*?"normal"[\s\S]*?"spy"[\s\S]*?\}/)
+    if (!match) throw new Error('No JSON in response')
+
+    const parsed = JSON.parse(match[0])
+    if (!parsed.normal || !parsed.spy) throw new Error('Missing fields')
+
+    console.log(`✅ Words [${difficulty}]:`, parsed)
+    return { normal: parsed.normal, spy: parsed.spy }
+
   } catch (err) {
-    console.error('Word gen failed, using fallback:', err)
-    // Fallback word pairs per difficulty
-    const fallbacks = {
-      easy: [
-        { normal: 'Dog', spy: 'Cat' },
-        { normal: 'Sun', spy: 'Moon' },
-        { normal: 'Apple', spy: 'Orange' },
-      ],
-      medium: [
-        { normal: 'Beach', spy: 'Desert' },
-        { normal: 'Coffee', spy: 'Tea' },
-        { normal: 'Guitar', spy: 'Violin' },
-      ],
-      hard: [
-        { normal: 'Latte', spy: 'Cappuccino' },
-        { normal: 'Skateboard', spy: 'Surfboard' },
-        { normal: 'Crocodile', spy: 'Alligator' },
-      ]
-    }
-    const list = fallbacks[difficulty]
+    console.warn('⚠️ Pollinations failed, using fallback:', err.message)
+    const list = FALLBACKS[difficulty]
     return list[Math.floor(Math.random() * list.length)]
   }
 }
