@@ -5,6 +5,7 @@ import { db } from '../../lib/firebase'
 import { ref, onValue, set, remove, update } from 'firebase/database'
 import { useAuth } from '../../lib/AuthContext'
 import './Room.css'
+import VoiceBar from '../shared/VoiceBar'   // in Room.jsx
 
 const DIFFICULTIES = [
   { id: 'easy', label: '😄 Easy', desc: 'Clearly different words' },
