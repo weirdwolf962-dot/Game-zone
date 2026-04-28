@@ -7,8 +7,6 @@ import { useAuth } from '../../../lib/AuthContext'
 import { generateWords } from '../../../lib/wordgen'
 import './SpyGame.css'
 
-// Game phases: loading → reveal → discuss → vote → results → (next round or end)
-
 export default function SpyGame() {
   const { code } = useParams()
   const { user, profile } = useAuth()
@@ -16,17 +14,20 @@ export default function SpyGame() {
 
   const [room, setRoom] = useState(null)
   const [game, setGame] = useState(null)
-  const [myRole, setMyRole] = useState(null) // { isSpy, word }
+  const [myRole, setMyRole] = useState(null)
   const [showWord, setShowWord] = useState(false)
-  const [votedFor, setVotedFor] = useState(null)
   const [loading, setLoading] = useState(true)
   const [genStatus, setGenStatus] = useState('Generating words with AI...')
+
+  // Track phase locally to detect round resets
+  const prevPhaseRef = useRef(null)
+  const prevRoundRef = useRef(null)
+  const isGenerating = useRef(false)
 
   const isHost = room?.host === user?.uid
   const players = room?.players ? Object.values(room.players) : []
   const game_ref = ref(db, `rooms/${code}/game`)
 
-  // Subscribe to room
   useEffect(() => {
     const unsub = onValue(ref(db, `rooms/${code}`), snap => {
       if (!snap.exists()) { navigate('/'); return }
@@ -36,19 +37,37 @@ export default function SpyGame() {
       setGame(g)
       setLoading(false)
 
-      // Load my role from game assignments
-      if (g?.assignments?.[user.uid]) {
+      if (!g) return
+
+      // Detect round change → reset local UI state
+      const roundChanged = g.round !== prevRoundRef.current
+      const phaseChanged = g.phase !== prevPhaseRef.current
+
+      if (roundChanged) {
+        setMyRole(null)
+        setShowWord(false)
+        prevRoundRef.current = g.round
+      }
+
+      prevPhaseRef.current = g.phase
+
+      // Load my role from assignments
+      if (g.assignments?.[user.uid]) {
         setMyRole(g.assignments[user.uid])
       }
     })
     return unsub
   }, [code])
 
-  // Host: generate words and assign roles when phase is 'loading'
+  // Host: generate words when phase is 'loading' and no assignments yet
   useEffect(() => {
-    if (!isHost || !game || game.phase !== 'loading' || game.assignments) return
-    assignRoles()
-  }, [isHost, game])
+    if (!isHost || !game || !room) return
+    if (game.phase !== 'loading') return
+    if (game.assignments) return       // already assigned
+    if (isGenerating.current) return   // prevent double-call
+    isGenerating.current = true
+    assignRoles().finally(() => { isGenerating.current = false })
+  }, [isHost, game?.phase, game?.round])
 
   const assignRoles = async () => {
     setGenStatus('Asking AI for words...')
@@ -75,26 +94,25 @@ export default function SpyGame() {
       spyWord: words.spy,
       spies,
       votes: {},
-      eliminated: null,
+      eliminatedThisRound: null,
+      voteTally: null,
+      winner: null,
+      gameOver: false,
       roundStart: Date.now(),
     })
   }
 
-  const proceedToDiscuss = async () => {
-    await update(game_ref, { phase: 'discuss' })
-  }
+  // My vote — read from Firebase so it survives refresh
+  const myVote = game?.votes?.[user.uid] || null
 
   const castVote = async (targetUid) => {
-    if (votedFor) return
-    setVotedFor(targetUid)
-    const votes = game.votes || {}
-    votes[user.uid] = targetUid
+    if (myVote) return // already voted
+    const votes = { ...(game.votes || {}), [user.uid]: targetUid }
     await update(game_ref, { votes })
 
-    // Check if all voted
-    const votingPlayers = players.filter(p => !game.eliminated || !game.eliminated[p.uid])
-    if (Object.keys(votes).length >= votingPlayers.length) {
-      await tallyVotes(votes, votingPlayers)
+    const activePlayers = players.filter(p => !game.eliminated?.[p.uid])
+    if (Object.keys(votes).length >= activePlayers.length) {
+      await tallyVotes(votes, activePlayers)
     }
   }
 
@@ -102,13 +120,10 @@ export default function SpyGame() {
     const tally = {}
     Object.values(votes).forEach(v => { tally[v] = (tally[v] || 0) + 1 })
     const maxVotes = Math.max(...Object.values(tally))
-    const eliminated = Object.entries(tally).filter(([_, v]) => v === maxVotes).map(([k]) => k)
-    const eliminatedUid = eliminated[0] // simplest tie-break: first
+    const topVoted = Object.entries(tally).filter(([_, v]) => v === maxVotes).map(([k]) => k)
+    const eliminatedUid = topVoted[0]
 
-    const eliminatedPlayer = players.find(p => p.uid === eliminatedUid)
     const wasSpies = game.spies || []
-    const spyEliminated = wasSpies.includes(eliminatedUid)
-
     const remaining = activePlayers.filter(p => p.uid !== eliminatedUid)
     const remainingSpies = wasSpies.filter(uid => remaining.find(p => p.uid === uid))
     const remainingCivilian = remaining.filter(p => !wasSpies.includes(p.uid))
@@ -127,17 +142,18 @@ export default function SpyGame() {
   }
 
   const playAgain = async () => {
-    setVotedFor(null)
-    setMyRole(null)
-    setShowWord(false)
+    // Full reset — clear assignments so host regenerates
     await update(game_ref, {
       phase: 'loading',
       assignments: null,
       votes: {},
-      eliminated: null,
       eliminatedThisRound: null,
+      voteTally: null,
       winner: null,
       gameOver: false,
+      spies: null,
+      normalWord: null,
+      spyWord: null,
       round: (game.round || 1) + 1,
     })
   }
@@ -154,7 +170,7 @@ export default function SpyGame() {
     </div>
   )
 
-  // === PHASE: LOADING (host generating) ===
+  // ── PHASE: LOADING ──────────────────────────────────────────
   if (game.phase === 'loading') return (
     <div className="spy-loading">
       <div className="spy-eye animate-float">👁️</div>
@@ -164,7 +180,7 @@ export default function SpyGame() {
     </div>
   )
 
-  // === PHASE: REVEAL ===
+  // ── PHASE: REVEAL ───────────────────────────────────────────
   if (game.phase === 'reveal') return (
     <div className="spy-page">
       <div className="spy-container">
@@ -178,11 +194,9 @@ export default function SpyGame() {
           <h1>Your Secret Word</h1>
           <p>Tap the card to reveal your word. <strong>Don't let anyone else see!</strong></p>
 
-          <div className={`word-card ${showWord ? 'flipped' : ''}`} onClick={() => setShowWord(true)}>
+          <div className={`word-card ${showWord ? 'flipped' : ''}`} onClick={() => !showWord && setShowWord(true)}>
             {!showWord ? (
-              <div className="word-card-back">
-                <span>👆 Tap to Reveal</span>
-              </div>
+              <div className="word-card-back"><span>👆 Tap to Reveal</span></div>
             ) : (
               <div className="word-card-front">
                 <div className={`role-badge ${myRole?.isSpy ? 'spy-role' : 'civilian-role'}`}>
@@ -199,13 +213,13 @@ export default function SpyGame() {
           </div>
 
           {showWord && isHost && (
-            <button className="btn btn-spy btn-lg" onClick={proceedToDiscuss} style={{ marginTop: 16 }}>
-              Everyone ready? Start Discussion →
+            <button className="btn btn-spy btn-lg" onClick={() => update(game_ref, { phase: 'discuss' })} style={{ marginTop: 16 }}>
+              Everyone Ready? Start Discussion →
             </button>
           )}
           {showWord && !isHost && (
             <p style={{ color: 'var(--spy-muted)', marginTop: 12, fontSize: '0.9rem' }}>
-              Waiting for host to start the discussion...
+              Waiting for host to start discussion...
             </p>
           )}
         </div>
@@ -213,33 +227,29 @@ export default function SpyGame() {
     </div>
   )
 
-  // === PHASE: DISCUSS ===
+  // ── PHASE: DISCUSS ──────────────────────────────────────────
   if (game.phase === 'discuss') return (
     <div className="spy-page">
       <div className="spy-container">
         <div className="spy-top-bar">
           <span className="badge badge-gold">Round {game.round || 1}</span>
-          <span style={{ color: 'var(--spy-muted)', fontSize: '0.85rem', fontFamily: 'Space Mono, monospace' }}>DISCUSSION PHASE</span>
+          <span style={{ color: 'var(--spy-muted)', fontSize: '0.85rem', fontFamily: 'Space Mono, monospace' }}>DISCUSSION</span>
         </div>
 
         <div className="discuss-header animate-fadeIn">
           <h1>Describe Your Word</h1>
-          <p>Each player gives ONE clue about their word. Listen carefully — someone is lying!</p>
+          <p>Each player gives ONE clue. Listen carefully — someone is lying!</p>
         </div>
 
         <div className="players-discuss animate-fadeIn">
           {players.map((p, i) => (
             <div key={p.uid} className="discuss-player" style={{ animationDelay: `${i * 0.06}s` }}>
-              <div className="avatar" style={{ background: p.avatarColor, fontSize: '1.3rem' }}>
-                {p.avatar}
-              </div>
+              <div className="avatar" style={{ background: p.avatarColor, fontSize: '1.3rem' }}>{p.avatar}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>{p.nickname}</div>
                 {p.uid === user.uid && <span style={{ color: 'var(--spy-accent)', fontSize: '0.8rem' }}>You</span>}
               </div>
-              <div className="discuss-turn-indicator">
-                <span>🎤</span>
-              </div>
+              <span>🎤</span>
             </div>
           ))}
         </div>
@@ -250,24 +260,23 @@ export default function SpyGame() {
         </div>
 
         {isHost && (
-          <button className="btn btn-spy btn-lg" onClick={() => update(game_ref, { phase: 'vote', votes: {} })}
-            style={{ width: '100%', marginTop: 8 }}>
+          <button className="btn btn-spy btn-lg" onClick={() => update(game_ref, { phase: 'vote', votes: {} })} style={{ width: '100%' }}>
             Start Voting →
           </button>
         )}
         {!isHost && (
-          <p style={{ textAlign: 'center', color: 'var(--spy-muted)', marginTop: 8, fontSize: '0.9rem' }}>
-            Use voice chat to discuss. Host controls when voting begins.
+          <p style={{ textAlign: 'center', color: 'var(--spy-muted)', fontSize: '0.9rem' }}>
+            Host controls when voting begins.
           </p>
         )}
       </div>
     </div>
   )
 
-  // === PHASE: VOTE ===
+  // ── PHASE: VOTE ─────────────────────────────────────────────
   if (game.phase === 'vote') {
     const votes = game.votes || {}
-    const hasVoted = !!votes[user.uid] || !!votedFor
+    const hasVoted = !!myVote   // from Firebase — survives refresh
     const voteCount = Object.keys(votes).length
 
     return (
@@ -283,19 +292,19 @@ export default function SpyGame() {
             <p>Vote for who you think is the spy. Most votes = eliminated!</p>
             <div className="vote-progress">
               <div className="vote-bar" style={{ width: `${(voteCount / players.length) * 100}%` }} />
-              <span>{voteCount}/{players.length} voted</span>
             </div>
+            <small style={{ color: 'var(--spy-muted)' }}>{voteCount}/{players.length} voted</small>
           </div>
 
           <div className="vote-grid animate-fadeIn">
             {players.map(p => {
-              const voteCount_p = Object.values(votes).filter(v => v === p.uid).length
+              const voteCountP = Object.values(votes).filter(v => v === p.uid).length
               const isMe = p.uid === user.uid
-              const voted = votes[user.uid] === p.uid || votedFor === p.uid
+              const votedForThis = myVote === p.uid
               return (
                 <button
                   key={p.uid}
-                  className={`vote-card ${voted ? 'voted' : ''} ${isMe ? 'is-me' : ''} ${hasVoted ? 'disabled' : ''}`}
+                  className={`vote-card ${votedForThis ? 'voted' : ''} ${isMe ? 'is-me' : ''} ${hasVoted ? 'disabled' : ''}`}
                   onClick={() => !hasVoted && !isMe && castVote(p.uid)}
                   disabled={isMe || hasVoted}
                 >
@@ -303,11 +312,9 @@ export default function SpyGame() {
                     {p.avatar}
                   </div>
                   <div className="vote-name">{p.nickname}</div>
-                  {isMe && <div className="vote-sub">Can't vote for yourself</div>}
-                  {voteCount_p > 0 && (
-                    <div className="vote-count-badge">{voteCount_p} 🗳️</div>
-                  )}
-                  {voted && <div className="voted-label">✓ Your Vote</div>}
+                  {isMe && <div className="vote-sub">Can't self-vote</div>}
+                  {voteCountP > 0 && <div className="vote-count-badge">{voteCountP} 🗳️</div>}
+                  {votedForThis && <div className="voted-label">✓ Your Vote</div>}
                 </button>
               )
             })}
@@ -323,7 +330,7 @@ export default function SpyGame() {
     )
   }
 
-  // === PHASE: RESULTS ===
+  // ── PHASE: RESULTS ──────────────────────────────────────────
   if (game.phase === 'results') {
     const eliminated = players.find(p => p.uid === game.eliminatedThisRound)
     const wasSpies = game.spies || []
@@ -336,9 +343,7 @@ export default function SpyGame() {
           <div className="results-header animate-fadeIn">
             {game.winner ? (
               <>
-                <div className="winner-emoji animate-float">
-                  {game.winner === 'civilians' ? '🎉' : '😈'}
-                </div>
+                <div className="winner-emoji animate-float">{game.winner === 'civilians' ? '🎉' : '😈'}</div>
                 <h1 className={game.winner === 'civilians' ? 'win-civ' : 'win-spy'}>
                   {game.winner === 'civilians' ? 'Civilians Win!' : 'Spies Win!'}
                 </h1>
@@ -353,7 +358,6 @@ export default function SpyGame() {
             )}
           </div>
 
-          {/* Word Reveal */}
           <div className="word-reveal-panel card animate-fadeIn">
             <h2>The Words Were:</h2>
             <div className="words-reveal">
@@ -368,7 +372,6 @@ export default function SpyGame() {
             </div>
           </div>
 
-          {/* Spy reveal */}
           <div className="spy-reveal-panel card animate-fadeIn">
             <h2>The Spies Were:</h2>
             <div className="spy-reveal-list">
@@ -376,9 +379,7 @@ export default function SpyGame() {
                 const p = players.find(pl => pl.uid === uid)
                 return p ? (
                   <div key={uid} className="spy-reveal-item">
-                    <div className="avatar" style={{ background: p.avatarColor, fontSize: '1.3rem' }}>
-                      {p.avatar}
-                    </div>
+                    <div className="avatar" style={{ background: p.avatarColor, fontSize: '1.3rem' }}>{p.avatar}</div>
                     <span>{p.nickname}</span>
                     <span className="badge badge-red">SPY</span>
                   </div>
@@ -387,15 +388,12 @@ export default function SpyGame() {
             </div>
           </div>
 
-          {/* Vote tally */}
           <div className="tally-panel card animate-fadeIn">
             <h2>Vote Count:</h2>
             {players.map(p => (
               <div key={p.uid} className="tally-row">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div className="avatar" style={{ background: p.avatarColor, fontSize: '1rem', width: 32, height: 32 }}>
-                    {p.avatar}
-                  </div>
+                  <div className="avatar" style={{ background: p.avatarColor, fontSize: '1rem', width: 32, height: 32 }}>{p.avatar}</div>
                   <span>{p.nickname}</span>
                 </div>
                 <div className="tally-bar-wrap">
@@ -409,18 +407,14 @@ export default function SpyGame() {
           {isHost && (
             <div className="results-actions animate-fadeIn">
               {!game.gameOver && (
-                <button className="btn btn-spy btn-lg" onClick={playAgain}>
-                  ↻ Next Round
-                </button>
+                <button className="btn btn-spy btn-lg" onClick={playAgain}>↻ Next Round</button>
               )}
-              <button className="btn btn-ghost" onClick={endGame}>
-                🏠 Back to Lobby
-              </button>
+              <button className="btn btn-ghost" onClick={endGame}>🏠 Back to Lobby</button>
             </div>
           )}
           {!isHost && (
             <p style={{ textAlign: 'center', color: 'var(--spy-muted)', fontSize: '0.9rem' }}>
-              Waiting for host to start next round or end game...
+              Waiting for host to continue...
             </p>
           )}
         </div>
