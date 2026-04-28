@@ -5,6 +5,7 @@ import { db } from '../../lib/firebase'
 import { ref, onValue, set, remove, update } from 'firebase/database'
 import { useAuth } from '../../lib/AuthContext'
 import './Room.css'
+import { AvatarDisplay } from '../auth/AvatarPicker'
 import VoiceBar from '../shared/VoiceBar'
 
 const DIFFICULTIES = [
@@ -111,9 +112,7 @@ export default function Room() {
             <div className="players-list">
               {players.map(p => (
                 <div key={p.uid} className="player-item">
-                  <div className="avatar" style={{ background: p.avatarColor }}>
-                    {p.avatar}
-                  </div>
+<AvatarDisplay profile={p} size={40} fontSize='1.2rem' />
                   <div>
                     <div style={{ fontWeight: 600 }}>{p.nickname}</div>
                     {p.isHost && <span className="badge badge-yellow" style={{ fontSize: '0.7rem' }}>Host</span>}
