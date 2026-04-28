@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { db } from '../../lib/firebase'
 import { ref, set, get, push } from 'firebase/database'
 import './Home.css'
+import { AvatarDisplay } from '../auth/AvatarPicker'
 
 export default function Home() {
   const { user, profile, logout } = useAuth()
@@ -80,9 +81,7 @@ export default function Home() {
       <header className="home-header">
         <div className="header-logo"><img src="/logo.png" alt="GameZone" style={{ height: 32, width: 32, objectFit: 'contain' }} /> <span>GameZone</span></div>
         <div className="header-profile">
-          <div className="avatar" style={{ background: profile?.avatarColor, fontSize: '1.4rem' }}>
-            {profile?.avatar}
-          </div>
+<AvatarDisplay profile={profile} size={40} fontSize='1.2rem' />
           <span>{profile?.nickname}</span>
           <button className="btn btn-ghost btn-sm" onClick={logout}>Sign Out</button>
         </div>
