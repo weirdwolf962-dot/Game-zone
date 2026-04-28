@@ -5,7 +5,7 @@ import { db } from '../../lib/firebase'
 import { ref, onValue, set, remove, update } from 'firebase/database'
 import { useAuth } from '../../lib/AuthContext'
 import './Room.css'
-import VoiceBar from '../shared/VoiceBar'   // in Room.jsx
+import VoiceBar from '../shared/VoiceBar'
 
 const DIFFICULTIES = [
   { id: 'easy', label: '😄 Easy', desc: 'Clearly different words' },
@@ -185,6 +185,8 @@ export default function Room() {
           )}
         </div>
       </div>
+
+      <VoiceBar roomCode={code} userId={user?.uid} players={players} />
     </div>
   )
 }
