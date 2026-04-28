@@ -1,0 +1,122 @@
+/* src/components/shared/VoiceBar.css */
+.voice-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius);
+  backdrop-filter: blur(10px);
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: max-content;
+  max-width: calc(100vw - 48px);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.voice-error {
+  color: var(--gc-accent);
+  font-size: 0.85rem;
+  justify-content: center;
+}
+
+/* Peer avatars */
+.voice-peers {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.voice-peer {
+  position: relative;
+  opacity: 0.4;
+  transition: opacity 0.2s ease;
+}
+
+.voice-peer.speaking {
+  opacity: 1;
+}
+
+.voice-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  position: relative;
+}
+
+.speaking-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--gc-accent3);
+  animation: speaking-pulse 0.8s ease infinite;
+}
+
+@keyframes speaking-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.6; }
+}
+
+/* Divider */
+.voice-bar::before {
+  content: '';
+  width: 1px;
+  height: 32px;
+  background: rgba(255,255,255,0.1);
+  flex-shrink: 0;
+}
+
+/* PTT Button */
+.ptt-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 20px;
+  border-radius: var(--radius-sm);
+  border: 2px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.05);
+  color: var(--gc-text);
+  font-family: 'Fredoka', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.ptt-btn:hover {
+  border-color: rgba(255,255,255,0.3);
+  background: rgba(255,255,255,0.08);
+}
+
+.ptt-btn.active {
+  border-color: var(--gc-accent3);
+  background: rgba(107,203,119,0.15);
+  box-shadow: 0 0 20px rgba(107,203,119,0.3);
+  transform: scale(0.97);
+}
+
+.ptt-icon { font-size: 1.2rem; }
+.ptt-label { font-size: 0.85rem; font-weight: 600; }
+.ptt-hint { font-size: 0.65rem; color: var(--gc-muted); }
+
+/* Spy game dark override */
+.spy-page .voice-bar {
+  border-color: var(--spy-border);
+  background: rgba(5,5,8,0.8);
+}
+
+.spy-page .ptt-btn.active {
+  border-color: var(--spy-accent);
+  background: rgba(201,168,76,0.12);
+  box-shadow: 0 0 20px rgba(201,168,76,0.25);
+}
