@@ -1,5 +1,5 @@
 // src/lib/wordgen.js
-const POLLINATIONS_KEY = 'pk_your_key_here'
+const POLLINATIONS_KEY = 'sk_tG4aWAeMieKVNdVA2GovxRBsTSapq6qy'
 const MODEL = 'gemini-search'
 
 // Large pools per difficulty — AI is last resort, these run first for reliability
