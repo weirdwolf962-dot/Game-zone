@@ -3,10 +3,10 @@ import { useEffect, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { db } from '../../../lib/firebase'
 import { ref, onValue, update, remove, get } from 'firebase/database'
+import VoiceBar from '../../shared/VoiceBar'
 import { useAuth } from '../../../lib/AuthContext'
 import { generateWords } from '../../../lib/wordgen'
 import './SpyGame.css'
-import VoiceBar from '../../shared/VoiceBar' // in SpyGame.jsx
 
 export default function SpyGame() {
   const { code } = useParams()
@@ -37,6 +37,12 @@ export default function SpyGame() {
       const g = data.game
       setGame(g)
       setLoading(false)
+
+      // Bug fix: when host ends game, redirect ALL players back to lobby
+      if (data.status === 'waiting' || !data.game) {
+        navigate(`/room/${code}`)
+        return
+      }
 
       if (!g) return
 
@@ -224,6 +230,8 @@ export default function SpyGame() {
             </p>
           )}
         </div>
+
+        <VoiceBar roomCode={code} userId={user.uid} players={players} />
       </div>
     </div>
   )
@@ -270,6 +278,8 @@ export default function SpyGame() {
             Host controls when voting begins.
           </p>
         )}
+
+        <VoiceBar roomCode={code} userId={user.uid} players={players} />
       </div>
     </div>
   )
@@ -326,6 +336,8 @@ export default function SpyGame() {
               {voteCount < players.length ? `Waiting for ${players.length - voteCount} more vote(s)...` : 'Tallying votes...'}
             </p>
           )}
+
+          <VoiceBar roomCode={code} userId={user.uid} players={players} />
         </div>
       </div>
     )
