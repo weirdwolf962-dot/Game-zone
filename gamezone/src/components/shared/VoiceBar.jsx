@@ -1,67 +1,61 @@
 // src/components/shared/VoiceBar.jsx
-// Push-to-talk voice bar — shown in Room and SpyGame
-
-import { useEffect, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { useVoiceChat } from '../../lib/useVoiceChat'
 import './VoiceBar.css'
 
 export default function VoiceBar({ roomCode, userId, players = [] }) {
-  const { peers, mySpeaking, micAllowed, micError, startSpeaking, stopSpeaking } = useVoiceChat(roomCode, userId)
+  const { speaking, mySpeaking, micAllowed, micError, startSpeaking, stopSpeaking } = useVoiceChat(roomCode, userId)
+  const [expanded, setExpanded] = useState(false)
 
-  // Keyboard: hold SPACE to talk
+  // Hold SPACE to talk
   useEffect(() => {
-    const onDown = (e) => {
+    const down = (e) => {
       if (e.code === 'Space' && e.target.tagName !== 'INPUT' && !e.repeat) {
-        e.preventDefault()
-        startSpeaking()
+        e.preventDefault(); startSpeaking()
       }
     }
-    const onUp = (e) => {
-      if (e.code === 'Space') stopSpeaking()
-    }
-    window.addEventListener('keydown', onDown)
-    window.addEventListener('keyup', onUp)
-    return () => {
-      window.removeEventListener('keydown', onDown)
-      window.removeEventListener('keyup', onUp)
-    }
+    const up = (e) => { if (e.code === 'Space') stopSpeaking() }
+    window.addEventListener('keydown', down)
+    window.addEventListener('keyup', up)
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
   }, [startSpeaking, stopSpeaking])
 
-  if (micAllowed === false) return (
-    <div className="voice-bar voice-error">
-      🎙️ {micError || 'Mic access denied — allow mic in browser settings'}
-    </div>
-  )
+  const speakingPlayers = players.filter(p => speaking[p.uid])
 
   return (
-    <div className="voice-bar">
-      {/* Speaking indicators */}
-      <div className="voice-peers">
-        {players.map(p => {
-          const isSpeaking = peers?.[p.uid]?.speaking || (p.uid === userId && mySpeaking)
-          return (
-            <div key={p.uid} className={`voice-peer ${isSpeaking ? 'speaking' : ''}`} title={p.nickname}>
-              <div className="voice-avatar" style={{ background: p.avatarColor }}>
-                {p.avatar}
-                {isSpeaking && <div className="speaking-ring" />}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+    <div className={`voice-widget ${mySpeaking ? 'my-speaking' : ''}`}>
 
-      {/* PTT Button */}
+      {/* Speaking avatars popup — shown when expanded or someone speaking */}
+      {(expanded || speakingPlayers.length > 0) && (
+        <div className="voice-speakers">
+          {players.map(p => {
+            const isSpeaking = speaking[p.uid] || (p.uid === userId && mySpeaking)
+            if (!isSpeaking && !expanded) return null
+            return (
+              <div key={p.uid} className={`voice-speaker-avatar ${isSpeaking ? 'active' : 'idle'}`}
+                style={{ background: p.avatarColor }} title={p.nickname}>
+                <span>{p.avatar}</span>
+                {isSpeaking && <div className="pulse-ring" />}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Main PTT button */}
       <button
-        className={`ptt-btn ${mySpeaking ? 'active' : ''}`}
+        className={`ptt-fab ${mySpeaking ? 'talking' : ''} ${micAllowed === false ? 'denied' : ''}`}
         onMouseDown={startSpeaking}
         onMouseUp={stopSpeaking}
         onTouchStart={(e) => { e.preventDefault(); startSpeaking() }}
         onTouchEnd={stopSpeaking}
+        onContextMenu={(e) => { e.preventDefault(); setExpanded(v => !v) }}
+        title={micAllowed === false ? micError : mySpeaking ? 'Speaking...' : 'Hold to Talk (or hold SPACE)'}
       >
-        <span className="ptt-icon">{mySpeaking ? '🔴' : '🎙️'}</span>
-        <span className="ptt-label">{mySpeaking ? 'Speaking...' : 'Hold to Talk'}</span>
-        <span className="ptt-hint">or hold SPACE</span>
+        {micAllowed === false ? '🚫' : mySpeaking ? '🔴' : '🎙️'}
       </button>
+
+      {mySpeaking && <div className="ptt-label-popup">Speaking...</div>}
     </div>
   )
 }
