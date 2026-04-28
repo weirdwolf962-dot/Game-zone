@@ -6,9 +6,9 @@ import './AvatarPicker.css'
 // ── Crew avatars ── add image paths here later e.g. image: '/avatars/rayyan.png'
 const CREW_AVATARS = [
   { id: 'crew_0', techyName: 'R4YY4N',     realName: 'Rayyan',     image: null, initials: 'RY' },
-  { id: 'crew_1', techyName: '4R5H',        realName: 'Arsh',       image: null, initials: 'AR' },
+  { id: 'crew_1', techyName: '4R5H',        realName: 'Arsh',       image: '/avatars/arsh.png' },
   { id: 'crew_2', techyName: 'R4J4.EXE',   realName: 'Rajandeep',  image: null, initials: 'RJ' },
-  { id: 'crew_3', techyName: '5UDH1N',      realName: 'Sudhin',     image: null, initials: 'SD' },
+  { id: 'crew_3', techyName: '5UDH1N',      realName: 'Sudhin',     image: '/avatars/sudhin.png' },
   { id: 'crew_4', techyName: 'PR4JW4L',    realName: 'Prajwal',    image: null, initials: 'PJ' },
 ]
 
