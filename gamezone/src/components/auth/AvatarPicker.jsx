@@ -3,13 +3,12 @@ import { useState } from 'react'
 import { useAuth } from '../../lib/AuthContext'
 import './AvatarPicker.css'
 
-// ── Crew avatars ── add image paths here later e.g. image: '/avatars/rayyan.png'
-const CREW_AVATARS = [
-  { id: 'crew_0', techyName: 'R4YY4N',     realName: 'Rayyan',     image: null, initials: 'RY' },
-  { id: 'crew_1', techyName: '4R5H',        realName: 'Arsh',       image: '/avatars/arsh.png' },
-  { id: 'crew_2', techyName: 'R4J4.EXE',   realName: 'Rajandeep',  image: null, initials: 'RJ' },
-  { id: 'crew_3', techyName: '5UDH1N',      realName: 'Sudhin',     image: '/avatars/sudhin.png' },
-  { id: 'crew_4', techyName: 'PR4JW4L',    realName: 'Prajwal',    image: null, initials: 'PJ' },
+export const CREW_AVATARS = [
+  { id: 'crew_0', techyName: 'R4YY4N',   realName: 'Rayyan',    image: '/avatars/rayyan.png',    initials: 'RY' },
+  { id: 'crew_1', techyName: '4R5H',      realName: 'Arsh',      image: '/avatars/arsh.png',      initials: 'AR' },
+  { id: 'crew_2', techyName: 'R4J4.EXE', realName: 'Rajandeep', image: '/avatars/rajandeep.png', initials: 'RJ' },
+  { id: 'crew_3', techyName: '5UDH1N',   realName: 'Sudhin',    image: '/avatars/sudhin.png',    initials: 'SD' },
+  { id: 'crew_4', techyName: 'PR4JW4L',  realName: 'Prajwal',   image: '/avatars/prajwal.png',   initials: 'PJ' },
 ]
 
 const EMOJI_AVATARS = [
@@ -23,9 +22,37 @@ const COLORS = [
   '#c77dff','#ff9f43','#48dbfb','#ff6b9d',
 ]
 
+// Helper: render avatar circle anywhere in app
+export function AvatarDisplay({ profile, size = 48, fontSize = '1.4rem' }) {
+  const crew = profile?.crewId ? CREW_AVATARS.find(c => c.id === profile.crewId) : null
+  const style = {
+    width: size, height: size, borderRadius: '50%',
+    background: profile?.avatarColor || '#4d96ff',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    fontSize, overflow: 'hidden', flexShrink: 0,
+  }
+
+  if (crew?.image) {
+    return (
+      <div style={style}>
+        <img
+          src={crew.image}
+          alt={crew.realName}
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
+        />
+        <span style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', fontFamily: 'Space Mono, monospace', fontSize: '0.8rem', fontWeight: 700 }}>
+          {crew.initials}
+        </span>
+      </div>
+    )
+  }
+
+  return <div style={style}>{profile?.avatar || '🎮'}</div>
+}
+
 export default function AvatarPicker() {
   const { user, saveProfile } = useAuth()
-  // selected can be a crew id like 'crew_0' or an emoji
   const [selected, setSelected] = useState(EMOJI_AVATARS[0])
   const [color, setColor] = useState(COLORS[0])
   const [nickname, setNickname] = useState(user?.displayName?.split(' ')[0] || '')
@@ -33,24 +60,34 @@ export default function AvatarPicker() {
 
   const selectedCrew = CREW_AVATARS.find(c => c.id === selected)
 
-  // What to show in the preview circle
-  const previewContent = selectedCrew
-    ? selectedCrew.image
-      ? <img src={selectedCrew.image} alt={selectedCrew.realName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-      : <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '1.1rem', fontWeight: 700 }}>{selectedCrew.initials}</span>
-    : selected
-
   const handleSave = async () => {
     if (!nickname.trim()) return
     setSaving(true)
-    // Store crew id or emoji
     await saveProfile({
       avatar: selectedCrew ? selectedCrew.initials : selected,
       avatarColor: color,
       nickname: nickname.trim(),
-      isCrew: !!selectedCrew,
       crewId: selectedCrew?.id || null,
+      avatarImage: selectedCrew?.image || null, // store image path in Firebase
     })
+  }
+
+  // Preview content
+  const renderPreview = () => {
+    if (selectedCrew?.image) {
+      return (
+        <img
+          src={selectedCrew.image}
+          alt={selectedCrew.realName}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+          onError={e => { e.target.style.display = 'none' }}
+        />
+      )
+    }
+    if (selectedCrew) {
+      return <span style={{ fontFamily: 'Space Mono, monospace', fontSize: '1.1rem', fontWeight: 700 }}>{selectedCrew.initials}</span>
+    }
+    return selected
   }
 
   return (
@@ -64,13 +101,12 @@ export default function AvatarPicker() {
         {/* Preview */}
         <div className="avatar-preview">
           <div className="preview-avatar" style={{ background: color, overflow: 'hidden' }}>
-            {previewContent}
+            {renderPreview()}
           </div>
           <div className="preview-name">{nickname || 'Your Name'}</div>
           {selectedCrew
             ? <span className="badge badge-gold" style={{ fontFamily: 'Space Mono, monospace', fontSize: '0.7rem' }}>{selectedCrew.techyName}</span>
-            : <div className="badge badge-blue">Player</div>
-          }
+            : <div className="badge badge-blue">Player</div>}
         </div>
 
         {/* Nickname */}
@@ -97,18 +133,27 @@ export default function AvatarPicker() {
                 style={selected === c.id ? { borderColor: color, boxShadow: `0 0 12px ${color}55` } : {}}
               >
                 <div className="crew-avatar-img" style={{ background: selected === c.id ? color : 'var(--gc-surface)' }}>
-                  {c.image
-                    ? <img src={c.image} alt={c.realName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                    : <span className="crew-initials">{c.initials}</span>
-                  }
+                  <img
+                    src={c.image}
+                    alt={c.realName}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                    onError={e => {
+                      e.target.style.display = 'none'
+                      e.target.nextSibling.style.display = 'flex'
+                    }}
+                  />
+                  <span className="crew-initials" style={{ display: 'none' }}>{c.initials}</span>
                 </div>
                 <span className="crew-techy-name">{c.techyName}</span>
               </button>
             ))}
           </div>
+          <p style={{ fontSize: '0.75rem', color: 'var(--gc-muted)', marginTop: 4 }}>
+            Add photos to <code>public/avatars/</code> folder named rayyan.png, arsh.png, etc.
+          </p>
         </div>
 
-        {/* Emoji Avatar Grid */}
+        {/* Emoji Avatars */}
         <div className="picker-section">
           <label>Or Pick an Emoji Avatar</label>
           <div className="avatar-grid">
@@ -125,7 +170,7 @@ export default function AvatarPicker() {
           </div>
         </div>
 
-        {/* Color Picker */}
+        {/* Color */}
         <div className="picker-section">
           <label>Avatar Color</label>
           <div className="color-grid">
