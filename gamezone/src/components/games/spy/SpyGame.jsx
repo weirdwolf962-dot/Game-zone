@@ -6,6 +6,8 @@ import { ref, onValue, update, remove, get } from 'firebase/database'
 import { useAuth } from '../../../lib/AuthContext'
 import { generateWords } from '../../../lib/wordgen'
 import './SpyGame.css'
+import VoiceBar from '../shared/VoiceBar'   // in Room.jsx
+import VoiceBar from '../../shared/VoiceBar' // in SpyGame.jsx
 
 export default function SpyGame() {
   const { code } = useParams()
