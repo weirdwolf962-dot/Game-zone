@@ -1,122 +1,119 @@
-/* src/components/shared/VoiceBar.css */
-.voice-bar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 12px 20px;
-  background: rgba(0,0,0,0.4);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: var(--radius);
-  backdrop-filter: blur(10px);
+/* VoiceBar.css — minimal floating PTT button, bottom right */
+
+.voice-widget {
   position: fixed;
   bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
-  width: max-content;
-  max-width: calc(100vw - 48px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-}
-
-.voice-error {
-  color: var(--gc-accent);
-  font-size: 0.85rem;
-  justify-content: center;
-}
-
-/* Peer avatars */
-.voice-peers {
+  right: 24px;
+  z-index: 999;
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
-  align-items: center;
+  pointer-events: none;
 }
 
-.voice-peer {
-  position: relative;
-  opacity: 0.4;
-  transition: opacity 0.2s ease;
+.voice-widget > * { pointer-events: all; }
+
+/* Speaking avatars row */
+.voice-speakers {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  animation: fadeIn 0.2s ease;
 }
 
-.voice-peer.speaking {
-  opacity: 1;
-}
-
-.voice-avatar {
-  width: 36px;
-  height: 36px;
+.voice-speaker-avatar {
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.1rem;
+  font-size: 1.2rem;
   position: relative;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
-.speaking-ring {
+.voice-speaker-avatar.idle { opacity: 0.4; }
+.voice-speaker-avatar.active { opacity: 1; }
+
+.pulse-ring {
   position: absolute;
   inset: -4px;
   border-radius: 50%;
-  border: 2px solid var(--gc-accent3);
-  animation: speaking-pulse 0.8s ease infinite;
+  border: 2px solid #6bcb77;
+  animation: pulse-ring 0.9s ease infinite;
 }
 
-@keyframes speaking-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.15); opacity: 0.6; }
+@keyframes pulse-ring {
+  0%   { transform: scale(1);    opacity: 1; }
+  50%  { transform: scale(1.2);  opacity: 0.5; }
+  100% { transform: scale(1);    opacity: 1; }
 }
 
-/* Divider */
-.voice-bar::before {
-  content: '';
-  width: 1px;
-  height: 32px;
-  background: rgba(255,255,255,0.1);
-  flex-shrink: 0;
-}
-
-/* PTT Button */
-.ptt-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  padding: 8px 20px;
-  border-radius: var(--radius-sm);
+/* Main PTT FAB button */
+.ptt-fab {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
   border: 2px solid rgba(255,255,255,0.15);
-  background: rgba(255,255,255,0.05);
-  color: var(--gc-text);
-  font-family: 'Fredoka', sans-serif;
+  background: rgba(20,20,30,0.85);
+  backdrop-filter: blur(10px);
+  font-size: 1.5rem;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: all 0.15s ease;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
 }
 
-.ptt-btn:hover {
+.ptt-fab:hover {
   border-color: rgba(255,255,255,0.3);
-  background: rgba(255,255,255,0.08);
+  transform: scale(1.05);
 }
 
-.ptt-btn.active {
-  border-color: var(--gc-accent3);
-  background: rgba(107,203,119,0.15);
-  box-shadow: 0 0 20px rgba(107,203,119,0.3);
-  transform: scale(0.97);
+.ptt-fab.talking {
+  background: rgba(107,203,119,0.2);
+  border-color: #6bcb77;
+  box-shadow: 0 0 20px rgba(107,203,119,0.4);
+  transform: scale(1.1);
 }
 
-.ptt-icon { font-size: 1.2rem; }
-.ptt-label { font-size: 0.85rem; font-weight: 600; }
-.ptt-hint { font-size: 0.65rem; color: var(--gc-muted); }
-
-/* Spy game dark override */
-.spy-page .voice-bar {
-  border-color: var(--spy-border);
-  background: rgba(5,5,8,0.8);
+.ptt-fab.denied {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.spy-page .ptt-btn.active {
+/* "Speaking..." label */
+.ptt-label-popup {
+  position: absolute;
+  bottom: 64px;
+  right: 0;
+  background: rgba(107,203,119,0.9);
+  color: #050508;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-family: 'Fredoka', sans-serif;
+  animation: fadeIn 0.2s ease;
+  pointer-events: none;
+}
+
+/* Spy game override — gold glow when talking */
+.spy-page .ptt-fab.talking {
+  background: rgba(201,168,76,0.2);
   border-color: var(--spy-accent);
-  background: rgba(201,168,76,0.12);
-  box-shadow: 0 0 20px rgba(201,168,76,0.25);
+  box-shadow: 0 0 20px rgba(201,168,76,0.4);
+}
+
+.spy-page .pulse-ring {
+  border-color: var(--spy-accent);
 }
