@@ -1,201 +1,211 @@
 // src/lib/useVoiceChat.js
-// WebRTC peer-to-peer voice chat with Firebase signaling
-// Push-to-talk: hold SPACE or hold the button to speak
+// WebRTC push-to-talk via Firebase signaling
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { db } from './firebase'
-import { ref, onValue, set, remove, onDisconnect, push, off } from 'firebase/database'
+import { ref, onValue, set, remove, onDisconnect, push, off, get } from 'firebase/database'
+
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+  ]
+}
 
 export function useVoiceChat(roomCode, userId) {
-  const [peers, setPeers] = useState({})       // uid -> { speaking }
-  const [mySpeaking, setMySpeaking] = useState(false)
-  const [micAllowed, setMicAllowed] = useState(null) // null=unknown, true, false
-  const [micError, setMicError] = useState('')
+  const [mySpeaking, setMySpeaking]   = useState(false)
+  const [speaking, setSpeaking]       = useState({}) // uid -> bool
+  const [micAllowed, setMicAllowed]   = useState(null)
+  const [micError, setMicError]       = useState('')
 
-  const localStream = useRef(null)
-  const peerConnections = useRef({})  // uid -> RTCPeerConnection
-  const audioElements = useRef({})    // uid -> <audio>
+  const localStream   = useRef(null)
+  const pcs           = useRef({})     // uid -> RTCPeerConnection
+  const audioEls      = useRef({})     // uid -> Audio element
+  const initialized   = useRef(false)
 
-  const sigRef = (path) => ref(db, `voice/${roomCode}/${path}`)
+  const vRef = (path) => ref(db, `voice/${roomCode}/${path}`)
 
-  // ICE servers — using free public STUN
-  const iceConfig = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-    ]
-  }
-
-  // ── Get mic access ──────────────────────────────────────────
-  const initMic = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      // Start muted — push to talk
-      stream.getAudioTracks().forEach(t => { t.enabled = false })
-      localStream.current = stream
-      setMicAllowed(true)
-      return stream
-    } catch (e) {
-      setMicAllowed(false)
-      setMicError('Mic access denied. Allow mic in browser settings.')
-      return null
+  // ── Attach remote stream to audio element ──
+  const playRemote = (uid, stream) => {
+    if (!audioEls.current[uid]) {
+      const audio = new Audio()
+      audio.autoplay = true
+      audio.playsInline = true
+      audioEls.current[uid] = audio
     }
+    audioEls.current[uid].srcObject = stream
+    audioEls.current[uid].play().catch(() => {})
   }
 
-  // ── Create peer connection ──────────────────────────────────
-  const createPeer = useCallback((targetUid, isInitiator, stream) => {
-    if (peerConnections.current[targetUid]) return
-    const pc = new RTCPeerConnection(iceConfig)
-    peerConnections.current[targetUid] = pc
+  // ── Create or get peer connection ──
+  const getPc = useCallback((uid) => {
+    if (pcs.current[uid]) return pcs.current[uid]
+
+    const pc = new RTCPeerConnection(ICE_SERVERS)
+    pcs.current[uid] = pc
 
     // Add local tracks
-    stream.getTracks().forEach(track => pc.addTrack(track, stream))
-
-    // On remote track — play it
-    pc.ontrack = (e) => {
-      let audio = audioElements.current[targetUid]
-      if (!audio) {
-        audio = new Audio()
-        audio.autoplay = true
-        audioElements.current[targetUid] = audio
-      }
-      audio.srcObject = e.streams[0]
+    if (localStream.current) {
+      localStream.current.getTracks().forEach(t => pc.addTrack(t, localStream.current))
     }
 
-    // ICE candidates → Firebase
+    // Remote track → play audio
+    pc.ontrack = (e) => {
+      if (e.streams?.[0]) playRemote(uid, e.streams[0])
+    }
+
+    // Send ICE candidates to Firebase
     pc.onicecandidate = (e) => {
       if (e.candidate) {
-        push(sigRef(`candidates/${targetUid}/${userId}`), e.candidate.toJSON())
+        push(vRef(`ice/${uid}/${userId}`), e.candidate.toJSON())
       }
     }
 
-    // Connection state
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      if (['failed','disconnected','closed'].includes(pc.connectionState)) {
         pc.close()
-        delete peerConnections.current[targetUid]
+        delete pcs.current[uid]
       }
-    }
-
-    if (isInitiator) {
-      pc.createOffer().then(offer => {
-        pc.setLocalDescription(offer)
-        set(sigRef(`offers/${targetUid}/${userId}`), { sdp: offer.sdp, type: offer.type })
-      })
     }
 
     return pc
   }, [roomCode, userId])
 
-  // ── Main signaling listener ─────────────────────────────────
+  // ── Make offer ──
+  const makeOffer = useCallback(async (uid) => {
+    const pc = getPc(uid)
+    if (pc.signalingState !== 'stable') return
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    await set(vRef(`offer/${uid}/${userId}`), { sdp: offer.sdp, type: offer.type })
+  }, [getPc, roomCode, userId])
+
+  // ── Handle incoming offer → send answer ──
+  const handleOffer = useCallback(async (fromUid, offer) => {
+    const pc = getPc(fromUid)
+    if (pc.signalingState !== 'stable') return
+    await pc.setRemoteDescription(new RTCSessionDescription(offer))
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    await set(vRef(`answer/${fromUid}/${userId}`), { sdp: answer.sdp, type: answer.type })
+  }, [getPc, roomCode, userId])
+
+  // ── Handle incoming answer ──
+  const handleAnswer = useCallback(async (fromUid, answer) => {
+    const pc = pcs.current[fromUid]
+    if (!pc || pc.signalingState !== 'have-local-offer') return
+    await pc.setRemoteDescription(new RTCSessionDescription(answer))
+  }, [])
+
+  // ── Handle ICE ──
+  const handleIce = useCallback(async (fromUid, candidate) => {
+    const pc = pcs.current[fromUid]
+    if (!pc) return
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)) } catch {}
+  }, [])
+
+  // ── Init ──
   useEffect(() => {
-    if (!roomCode || !userId) return
-    let stream = null
+    if (!roomCode || !userId || initialized.current) return
+    initialized.current = true
 
     const setup = async () => {
-      stream = await initMic()
-      if (!stream) return
+      // Get mic
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        stream.getAudioTracks().forEach(t => { t.enabled = false }) // start muted
+        localStream.current = stream
+        setMicAllowed(true)
+      } catch {
+        setMicAllowed(false)
+        setMicError('Mic blocked — allow mic in browser settings')
+        return
+      }
 
       // Announce presence
-      const presenceRef = sigRef(`presence/${userId}`)
-      set(presenceRef, { uid: userId, joined: Date.now() })
-      onDisconnect(presenceRef).remove()
+      const presRef = vRef(`presence/${userId}`)
+      await set(presRef, { uid: userId, ts: Date.now() })
+      onDisconnect(presRef).remove()
+      onDisconnect(vRef(`speaking/${userId}`)).remove()
 
-      // Watch others' presence → initiate connections
-      const presRef = sigRef('presence')
-      onValue(presRef, snap => {
+      // Watch presence — when someone new joins, initiator (lower uid) makes offer
+      onValue(vRef('presence'), async (snap) => {
         if (!snap.exists()) return
-        const present = snap.val()
-        Object.keys(present).forEach(uid => {
-          if (uid !== userId && !peerConnections.current[uid]) {
-            // Lower uid initiates to avoid double-offers
-            const isInitiator = userId < uid
-            createPeer(uid, isInitiator, localStream.current)
+        for (const uid of Object.keys(snap.val())) {
+          if (uid === userId) continue
+          if (!pcs.current[uid] && userId < uid) {
+            await makeOffer(uid)
           }
-        })
-        setPeers(present)
+        }
       })
 
-      // Watch incoming offers for me
-      const offersRef = sigRef(`offers/${userId}`)
-      onValue(offersRef, snap => {
+      // Watch offers addressed to me
+      onValue(vRef(`offer/${userId}`), async (snap) => {
         if (!snap.exists()) return
-        Object.entries(snap.val()).forEach(async ([fromUid, offer]) => {
-          let pc = peerConnections.current[fromUid]
-          if (!pc) pc = createPeer(fromUid, false, localStream.current)
-          if (!pc || pc.signalingState !== 'stable') return
-          await pc.setRemoteDescription(new RTCSessionDescription(offer))
-          const answer = await pc.createAnswer()
-          await pc.setLocalDescription(answer)
-          set(sigRef(`answers/${fromUid}/${userId}`), { sdp: answer.sdp, type: answer.type })
-        })
+        for (const [fromUid, offer] of Object.entries(snap.val())) {
+          await handleOffer(fromUid, offer)
+        }
       })
 
-      // Watch incoming answers for me
-      const answersRef = sigRef(`answers/${userId}`)
-      onValue(answersRef, snap => {
+      // Watch answers addressed to me
+      onValue(vRef(`answer/${userId}`), async (snap) => {
         if (!snap.exists()) return
-        Object.entries(snap.val()).forEach(async ([fromUid, answer]) => {
-          const pc = peerConnections.current[fromUid]
-          if (!pc || pc.signalingState !== 'have-local-offer') return
-          await pc.setRemoteDescription(new RTCSessionDescription(answer))
-        })
+        for (const [fromUid, answer] of Object.entries(snap.val())) {
+          await handleAnswer(fromUid, answer)
+        }
       })
 
-      // Watch ICE candidates for me
-      const candRef = sigRef(`candidates/${userId}`)
-      onValue(candRef, snap => {
+      // Watch ICE candidates addressed to me
+      onValue(vRef(`ice/${userId}`), async (snap) => {
         if (!snap.exists()) return
-        Object.entries(snap.val()).forEach(([fromUid, candidates]) => {
-          const pc = peerConnections.current[fromUid]
-          if (!pc) return
-          Object.values(candidates).forEach(c => {
-            pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {})
-          })
-        })
+        for (const [fromUid, candidates] of Object.entries(snap.val())) {
+          for (const c of Object.values(candidates)) {
+            await handleIce(fromUid, c)
+          }
+        }
       })
 
       // Watch speaking indicators
-      const speakRef = sigRef('speaking')
-      onValue(speakRef, snap => {
-        if (!snap.exists()) { setPeers(p => ({ ...p })); return }
-        // handled via peers state
+      onValue(vRef('speaking'), (snap) => {
+        setSpeaking(snap.exists() ? snap.val() : {})
       })
     }
 
     setup()
 
     return () => {
-      // Cleanup
-      off(sigRef('presence'))
-      off(sigRef(`offers/${userId}`))
-      off(sigRef(`answers/${userId}`))
-      off(sigRef(`candidates/${userId}`))
-      remove(sigRef(`presence/${userId}`))
-      remove(sigRef(`speaking/${userId}`))
-      Object.values(peerConnections.current).forEach(pc => pc.close())
-      peerConnections.current = {}
-      Object.values(audioElements.current).forEach(a => { a.srcObject = null })
-      audioElements.current = {}
+      off(vRef('presence'))
+      off(vRef(`offer/${userId}`))
+      off(vRef(`answer/${userId}`))
+      off(vRef(`ice/${userId}`))
+      off(vRef('speaking'))
+      remove(vRef(`presence/${userId}`))
+      remove(vRef(`speaking/${userId}`))
+      Object.values(pcs.current).forEach(pc => pc.close())
+      pcs.current = {}
+      Object.values(audioEls.current).forEach(a => { a.srcObject = null })
+      audioEls.current = {}
       if (localStream.current) localStream.current.getTracks().forEach(t => t.stop())
       localStream.current = null
+      initialized.current = false
     }
   }, [roomCode, userId])
 
-  // ── Push to talk ────────────────────────────────────────────
+  // ── Push to talk ──
   const startSpeaking = useCallback(() => {
     if (!localStream.current) return
     localStream.current.getAudioTracks().forEach(t => { t.enabled = true })
     setMySpeaking(true)
-    set(sigRef(`speaking/${userId}`), true)
+    set(vRef(`speaking/${userId}`), true)
   }, [roomCode, userId])
 
   const stopSpeaking = useCallback(() => {
     if (!localStream.current) return
     localStream.current.getAudioTracks().forEach(t => { t.enabled = false })
     setMySpeaking(false)
-    remove(sigRef(`speaking/${userId}`))
+    remove(vRef(`speaking/${userId}`))
   }, [roomCode, userId])
 
-  return { peers, mySpeaking, micAllowed, micError, startSpeaking, stopSpeaking }
+  return { speaking, mySpeaking, micAllowed, micError, startSpeaking, stopSpeaking }
 }
