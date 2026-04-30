@@ -24,31 +24,57 @@ const COLORS = [
 
 // Helper: render avatar circle anywhere in app
 export function AvatarDisplay({ profile, size = 48, fontSize = '1.4rem' }) {
-  const crew = profile?.crewId ? CREW_AVATARS.find(c => c.id === profile.crewId) : null
-  const style = {
+  const crew = CREW_AVATARS.find(c =>
+    (profile?.crewId && c.id === profile.crewId) ||
+    (profile?.avatarImage && c.image === profile.avatarImage)
+  )
+
+  const imageSrc = crew?.image || profile?.avatarImage || null
+  const fallback = crew?.initials || profile?.avatar || '🎮'
+  const isCrew = !!crew
+
+  const wrapStyle = {
     width: size, height: size, borderRadius: '50%',
     background: profile?.avatarColor || '#4d96ff',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize, overflow: 'hidden', flexShrink: 0,
+    fontSize: isCrew && !imageSrc ? `${size * 0.28}px` : fontSize,
+    fontFamily: isCrew && !imageSrc ? 'Space Mono, monospace' : 'inherit',
+    fontWeight: isCrew && !imageSrc ? '700' : 'normal',
+    overflow: 'hidden', flexShrink: 0, position: 'relative',
   }
 
-  if (crew?.image) {
+  if (imageSrc) {
     return (
-      <div style={style}>
-        <img
-          src={crew.image}
-          alt={crew.realName}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
-        />
-        <span style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', fontFamily: 'Space Mono, monospace', fontSize: '0.8rem', fontWeight: 700 }}>
-          {crew.initials}
-        </span>
+      <div style={wrapStyle} className="avatar-display">
+        <ImgWithFallback src={imageSrc} fallback={fallback} isCrew={isCrew} size={size} />
       </div>
     )
   }
 
-  return <div style={style}>{profile?.avatar || '🎮'}</div>
+  return <div style={wrapStyle} className="avatar-display">{fallback}</div>
+}
+
+function ImgWithFallback({ src, fallback, isCrew, size }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) {
+    return (
+      <span style={{
+        fontFamily: isCrew ? 'Space Mono, monospace' : 'inherit',
+        fontSize: isCrew ? `${size * 0.28}px` : 'inherit',
+        fontWeight: isCrew ? '700' : 'normal',
+      }}>
+        {fallback}
+      </span>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt="avatar"
+      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 export default function AvatarPicker() {
@@ -63,12 +89,13 @@ export default function AvatarPicker() {
   const handleSave = async () => {
     if (!nickname.trim()) return
     setSaving(true)
+    // nickname is ALWAYS what user types — crew avatar is just cosmetic
     await saveProfile({
       avatar: selectedCrew ? selectedCrew.initials : selected,
       avatarColor: color,
       nickname: nickname.trim(),
       crewId: selectedCrew?.id || null,
-      avatarImage: selectedCrew?.image || null, // store image path in Firebase
+      avatarImage: selectedCrew?.image || null,
     })
   }
 
