@@ -37,6 +37,8 @@ export default function Home() {
             nickname: profile.nickname,
             avatar: profile.avatar,
             avatarColor: profile.avatarColor,
+            crewId: profile.crewId || null,
+            avatarImage: profile.avatarImage || null,
             isHost: true,
             joinedAt: Date.now()
           }
@@ -65,6 +67,8 @@ export default function Home() {
         nickname: profile.nickname,
         avatar: profile.avatar,
         avatarColor: profile.avatarColor,
+        crewId: profile.crewId || null,
+        avatarImage: profile.avatarImage || null,
         isHost: false,
         joinedAt: Date.now()
       })
